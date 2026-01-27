@@ -685,14 +685,20 @@ async function bulkMoveChannels() {
     const channelIdsArray = Array.from(selectedChannelIds);
     console.log('Moving channels:', channelIdsArray, 'to category:', newCategoryId);
 
+    // 디버깅: 전송할 데이터 확인
+    const requestData = {
+        channel_ids: channelIdsArray,
+        new_category_id: newCategoryId
+    };
+    console.log('Request data:', JSON.stringify(requestData, null, 2));
+    console.log('Channel IDs types:', channelIdsArray.map(id => typeof id));
+    console.log('Category ID type:', typeof newCategoryId);
+
     try {
         const response = await fetch('/api/channels/bulk/move_category', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                channel_ids: channelIdsArray,
-                new_category_id: newCategoryId
-            })
+            body: JSON.stringify(requestData)
         });
 
         const result = await response.json();

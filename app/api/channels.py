@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional
 import re
+import json
 import io
 import pandas as pd
 from ..db import get_db
@@ -318,9 +319,14 @@ def move_channel_category(channel_id: int, data: MoveChannelRequest):
 
 
 @router.put("/bulk/move_category")
-def bulk_move_channels(data: BulkMoveChannelsRequest):
+async def bulk_move_channels(request: Request, data: BulkMoveChannelsRequest):
     """여러 채널을 다른 카테고리로 한번에 이동"""
     try:
+        # 디버깅: 수신된 데이터 로깅
+        print(f"[DEBUG] Received bulk move request:")
+        print(f"  - channel_ids: {data.channel_ids} (type: {type(data.channel_ids)})")
+        print(f"  - new_category_id: {data.new_category_id} (type: {type(data.new_category_id)})")
+
         if not data.channel_ids:
             raise HTTPException(status_code=400, detail="이동할 채널을 선택하세요")
 
