@@ -320,33 +320,44 @@ def move_channel_category(channel_id: int, data: MoveChannelRequest):
 @router.put("/bulk/move_category")
 def bulk_move_channels(data: BulkMoveChannelsRequest):
     """여러 채널을 다른 카테고리로 한번에 이동"""
-    with get_db() as conn:
-        cursor = conn.cursor()
+    try:
+        if not data.channel_ids:
+            raise HTTPException(status_code=400, detail="이동할 채널을 선택하세요")
 
-        # 카테고리 존재 확인
-        cursor.execute("SELECT id FROM categories WHERE id = ?", (data.new_category_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다")
+        if not data.new_category_id:
+            raise HTTPException(status_code=400, detail="이동할 카테고리를 선택하세요")
 
-        # 각 채널 이동
-        moved_count = 0
-        for channel_id in data.channel_ids:
-            cursor.execute("""
-                UPDATE channels
-                SET category_id = ?, updated_at = ?
-                WHERE id = ?
-            """, (data.new_category_id, datetime.now().isoformat(), channel_id))
-            if cursor.rowcount > 0:
-                moved_count += 1
+        with get_db() as conn:
+            cursor = conn.cursor()
 
-        conn.commit()
+            # 카테고리 존재 확인
+            cursor.execute("SELECT id FROM categories WHERE id = ?", (data.new_category_id,))
+            if not cursor.fetchone():
+                raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다")
 
-        return {
-            "success": True,
-            "moved_count": moved_count,
-            "total_requested": len(data.channel_ids),
-            "new_category_id": data.new_category_id
-        }
+            # 각 채널 이동
+            moved_count = 0
+            for channel_id in data.channel_ids:
+                cursor.execute("""
+                    UPDATE channels
+                    SET category_id = ?, updated_at = ?
+                    WHERE id = ?
+                """, (data.new_category_id, datetime.now().isoformat(), channel_id))
+                if cursor.rowcount > 0:
+                    moved_count += 1
+
+            conn.commit()
+
+            return {
+                "success": True,
+                "moved_count": moved_count,
+                "total_requested": len(data.channel_ids),
+                "new_category_id": data.new_category_id
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"채널 이동 중 오류 발생: {str(e)}")
 
 
 class BulkDeleteChannelsRequest(BaseModel):

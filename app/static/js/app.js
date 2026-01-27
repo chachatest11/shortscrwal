@@ -704,8 +704,18 @@ async function bulkMoveChannels() {
             await loadChannels();
             await refreshTabCounts();
         } else {
-            const errorMsg = result.detail || result.message || JSON.stringify(result) || '채널 이동 실패';
-            console.error('Bulk move failed:', errorMsg);
+            // 에러 메시지 추출 개선
+            let errorMsg = '채널 이동 실패';
+            if (typeof result.detail === 'string') {
+                errorMsg = result.detail;
+            } else if (typeof result.message === 'string') {
+                errorMsg = result.message;
+            } else if (result.detail && typeof result.detail === 'object') {
+                errorMsg = JSON.stringify(result.detail);
+            } else if (typeof result === 'string') {
+                errorMsg = result;
+            }
+            console.error('Bulk move failed:', result);
             alert('채널 이동 실패: ' + errorMsg);
         }
     } catch (error) {
