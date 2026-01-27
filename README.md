@@ -1,4 +1,4 @@
-# YouTube Shorts Downloader
+# Assets to the Money
 
 해외 양산형 쇼츠 채널의 영상을 수집하고 다운로드할 수 있는 웹 애플리케이션입니다.
 

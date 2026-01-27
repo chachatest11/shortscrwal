@@ -13,7 +13,7 @@ from .api import (
 )
 
 # FastAPI 앱 생성
-app = FastAPI(title="YouTube Shorts Downloader")
+app = FastAPI(title="Assets to the Money")
 
 # 정적 파일 및 템플릿 설정
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
