@@ -849,7 +849,7 @@ async function uploadMdFile() {
         const result = await response.json();
 
         if (result.success > 0) {
-            alert(`${result.success}개 채널이 추가되었습니다.${result.failed > 0 ? `\n실패: ${result.failed}개` : ''}\n\n발견된 URL: ${result.urls_found}개`);
+            alert(`${result.success}개 채널이 추가되었습니다.${result.failed > 0 ? `\n실패: ${result.failed}개` : ''}\n\n발견된 채널: ${result.identifiers_found}개`);
             closeAddChannelModal();
             loadChannels();
         } else {
@@ -863,7 +863,7 @@ async function uploadMdFile() {
     }
 }
 
-// MD 파일 선택 시 미리보기
+// 파일 선택 시 미리보기
 document.addEventListener('DOMContentLoaded', function() {
     const fileInput = document.getElementById('mdFileInput');
     if (fileInput) {
@@ -871,48 +871,85 @@ document.addEventListener('DOMContentLoaded', function() {
             const file = e.target.files[0];
             if (!file) return;
 
-            const text = await file.text();
-            const urls = extractYouTubeUrls(text);
+            try {
+                const text = await file.text();
+                const identifiers = extractYouTubeIdentifiers(text);
 
-            const preview = document.getElementById('filePreview');
-            const urlList = document.getElementById('urlList');
-            const urlCountHeader = document.getElementById('urlCountHeader');
+                const preview = document.getElementById('filePreview');
+                const urlList = document.getElementById('urlList');
+                const urlCountHeader = document.getElementById('urlCountHeader');
 
-            if (urls.length > 0) {
-                // URL 개수 헤더 업데이트
-                urlCountHeader.textContent = `감지된 YouTube URL: ${urls.length}개`;
-                urlCountHeader.style.color = '#4caf50';
+                if (identifiers.length > 0) {
+                    // 식별자 개수 헤더 업데이트
+                    urlCountHeader.textContent = `감지된 YouTube 채널: ${identifiers.length}개`;
+                    urlCountHeader.style.color = '#4caf50';
 
-                // URL 목록 표시
-                urlList.innerHTML = urls.map(url =>
-                    `<div style="font-size: 11px; color: #2196f3; padding: 4px 0; border-bottom: 1px solid #1a1a1a;">${escapeHtml(url)}</div>`
-                ).join('');
-                preview.style.display = 'block';
-            } else {
-                preview.style.display = 'none';
-                alert('파일에서 YouTube URL을 찾을 수 없습니다.');
+                    // 식별자 목록 표시
+                    urlList.innerHTML = identifiers.map(id =>
+                        `<div style="font-size: 11px; color: #2196f3; padding: 4px 0; border-bottom: 1px solid #1a1a1a;">${escapeHtml(id)}</div>`
+                    ).join('');
+                    preview.style.display = 'block';
+                } else {
+                    preview.style.display = 'none';
+                    alert('파일에서 YouTube URL, 채널ID, 핸들을 찾을 수 없습니다.');
+                }
+            } catch (error) {
+                console.error('파일 읽기 오류:', error);
+                alert('파일을 읽을 수 없습니다. 지원되는 형식: MD, TXT, CSV, Excel');
             }
         });
     }
 });
 
-function extractYouTubeUrls(text) {
-    const patterns = [
+function extractYouTubeIdentifiers(text) {
+    // URL 패턴
+    const urlPatterns = [
         /https?:\/\/(?:www\.)?youtube\.com\/channel\/([a-zA-Z0-9_-]+)/g,
         /https?:\/\/(?:www\.)?youtube\.com\/@([a-zA-Z0-9_-]+)/g,
         /https?:\/\/(?:www\.)?youtube\.com\/c\/([a-zA-Z0-9_-]+)/g,
         /https?:\/\/(?:www\.)?youtube\.com\/user\/([a-zA-Z0-9_-]+)/g,
     ];
 
-    const urls = new Set();
-    patterns.forEach(pattern => {
+    // 채널 ID 패턴 (UC로 시작하는 24자)
+    const channelIdPattern = /\b(UC[a-zA-Z0-9_-]{22})\b/g;
+
+    // 핸들 패턴 (@로 시작)
+    const handlePattern = /@([a-zA-Z0-9_-]+)/g;
+
+    const identifiers = new Set();
+
+    // URL 매칭
+    urlPatterns.forEach(pattern => {
         const matches = text.matchAll(pattern);
         for (const match of matches) {
-            urls.add(match[0]);
+            identifiers.add(match[0]);
         }
     });
 
-    return Array.from(urls);
+    // 채널 ID 매칭
+    const channelIdMatches = text.matchAll(channelIdPattern);
+    for (const match of channelIdMatches) {
+        identifiers.add(match[1]);
+    }
+
+    // 핸들 매칭 (URL에 포함되지 않은 경우만)
+    const handleMatches = text.matchAll(handlePattern);
+    for (const match of handleMatches) {
+        const fullMatch = match[0];
+        // URL에 이미 포함되지 않은 경우만 추가
+        let isInUrl = false;
+        for (const id of identifiers) {
+            if (id.includes(fullMatch)) {
+                isInUrl = true;
+                break;
+            }
+        }
+        if (!isInUrl) {
+            identifiers.add(fullMatch);
+        }
+    }
+
+    return Array.from(identifiers);
 }
 
 // ========================================

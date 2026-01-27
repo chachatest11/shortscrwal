@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional
 import re
+import io
+import pandas as pd
 from ..db import get_db
 from ..models import Channel
 from .youtube import YouTubeAPI, QuotaExceededException
@@ -438,6 +440,80 @@ def refresh_channel_info(channel_id: int, data: RefreshChannelRequest):
             raise HTTPException(status_code=500, detail=f"채널 정보 업데이트 실패: {str(e)}")
 
 
+def extract_youtube_identifiers_from_text(text: str) -> set:
+    """텍스트에서 YouTube URL, 채널ID, 핸들 추출"""
+    # YouTube URL 패턴
+    url_patterns = [
+        r'https?://(?:www\.)?youtube\.com/channel/([a-zA-Z0-9_-]+)',
+        r'https?://(?:www\.)?youtube\.com/@([a-zA-Z0-9_-]+)',
+        r'https?://(?:www\.)?youtube\.com/c/([a-zA-Z0-9_-]+)',
+        r'https?://(?:www\.)?youtube\.com/user/([a-zA-Z0-9_-]+)',
+    ]
+
+    # 채널 ID 패턴 (UC로 시작하는 24자)
+    channel_id_pattern = r'\b(UC[a-zA-Z0-9_-]{22})\b'
+
+    # 핸들 패턴 (@로 시작)
+    handle_pattern = r'@([a-zA-Z0-9_-]+)'
+
+    identifiers = set()
+
+    # URL 매칭
+    for pattern in url_patterns:
+        matches = re.finditer(pattern, text)
+        for match in matches:
+            identifiers.add(match.group(0))
+
+    # 채널 ID 매칭
+    matches = re.finditer(channel_id_pattern, text)
+    for match in matches:
+        identifiers.add(match.group(1))
+
+    # 핸들 매칭 (URL이 아닌 경우만)
+    matches = re.finditer(handle_pattern, text)
+    for match in matches:
+        full_match = match.group(0)
+        # URL 패턴에 이미 포함되지 않은 경우만 추가
+        if not any(full_match in identifier for identifier in identifiers):
+            identifiers.add(full_match)
+
+    return identifiers
+
+
+def parse_file_content(content: bytes, filename: str) -> str:
+    """파일 형식에 따라 텍스트 추출"""
+    file_ext = filename.lower().split('.')[-1]
+
+    try:
+        if file_ext in ['md', 'txt']:
+            # Markdown/텍스트 파일
+            return content.decode('utf-8')
+
+        elif file_ext == 'csv':
+            # CSV 파일
+            df = pd.read_csv(io.BytesIO(content), header=None)
+            # 모든 셀을 문자열로 변환하여 합치기
+            text_parts = []
+            for col in df.columns:
+                text_parts.extend(df[col].astype(str).tolist())
+            return ' '.join(text_parts)
+
+        elif file_ext in ['xlsx', 'xls']:
+            # Excel 파일
+            df = pd.read_excel(io.BytesIO(content), header=None)
+            # 모든 셀을 문자열로 변환하여 합치기
+            text_parts = []
+            for col in df.columns:
+                text_parts.extend(df[col].astype(str).tolist())
+            return ' '.join(text_parts)
+
+        else:
+            raise ValueError(f"지원하지 않는 파일 형식: {file_ext}")
+
+    except Exception as e:
+        raise ValueError(f"파일 파싱 오류: {str(e)}")
+
+
 @router.post("/upload_md")
 async def upload_md_file(
     file: UploadFile = File(...),
@@ -445,28 +521,23 @@ async def upload_md_file(
     api_key: Optional[str] = Form(None)
 ):
     """
-    Markdown 파일에서 YouTube URL 추출하여 채널 등록
+    파일에서 YouTube URL/채널ID/핸들 추출하여 채널 등록
+    지원 형식: MD, TXT, CSV, Excel (xlsx, xls)
     """
     # 파일 내용 읽기
     content = await file.read()
-    text = content.decode('utf-8')
 
-    # YouTube URL 패턴 매칭
-    patterns = [
-        r'https?://(?:www\.)?youtube\.com/channel/([a-zA-Z0-9_-]+)',
-        r'https?://(?:www\.)?youtube\.com/@([a-zA-Z0-9_-]+)',
-        r'https?://(?:www\.)?youtube\.com/c/([a-zA-Z0-9_-]+)',
-        r'https?://(?:www\.)?youtube\.com/user/([a-zA-Z0-9_-]+)',
-    ]
+    # 파일 형식에 따라 텍스트 추출
+    try:
+        text = parse_file_content(content, file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    urls = set()
-    for pattern in patterns:
-        matches = re.finditer(pattern, text)
-        for match in matches:
-            urls.add(match.group(0))
+    # YouTube 식별자 추출
+    identifiers = extract_youtube_identifiers_from_text(text)
 
-    if not urls:
-        raise HTTPException(status_code=400, detail="파일에서 YouTube URL을 찾을 수 없습니다")
+    if not identifiers:
+        raise HTTPException(status_code=400, detail="파일에서 YouTube URL, 채널ID, 핸들을 찾을 수 없습니다")
 
     # API 키 가져오기
     api_key = get_available_api_key(api_key)
@@ -475,13 +546,13 @@ async def upload_md_file(
     results = []
     errors = []
 
-    for url in urls:
+    for identifier in identifiers:
         try:
-            # URL을 channelId로 정규화
-            channel_id = youtube_api.normalize_channel_input(url)
+            # 식별자를 channelId로 정규화
+            channel_id = youtube_api.normalize_channel_input(identifier)
             if not channel_id:
                 errors.append({
-                    "input": url,
+                    "input": identifier,
                     "error": "채널 ID를 찾을 수 없습니다"
                 })
                 continue
@@ -490,7 +561,7 @@ async def upload_md_file(
             channel_info = youtube_api.get_channel_info(channel_id)
             if not channel_info:
                 errors.append({
-                    "input": url,
+                    "input": identifier,
                     "error": "채널 정보를 가져올 수 없습니다"
                 })
                 continue
@@ -537,7 +608,7 @@ async def upload_md_file(
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                     """, (
                         category_id,
-                        url,
+                        identifier,
                         channel_id,
                         channel_info["title"],
                         channel_info.get("description"),
@@ -551,7 +622,7 @@ async def upload_md_file(
                 conn.commit()
 
                 results.append({
-                    "input": url,
+                    "input": identifier,
                     "channel_id": channel_id,
                     "title": channel_info["title"],
                     "action": action
@@ -560,20 +631,20 @@ async def upload_md_file(
         except QuotaExceededException as e:
             mark_api_key_quota_exceeded(api_key)
             errors.append({
-                "input": url,
+                "input": identifier,
                 "error": f"API 쿼터가 초과되었습니다: {str(e)}"
             })
             break
         except Exception as e:
             errors.append({
-                "input": url,
+                "input": identifier,
                 "error": str(e)
             })
 
     return {
         "success": len(results),
         "failed": len(errors),
-        "urls_found": len(urls),
+        "identifiers_found": len(identifiers),
         "results": results,
         "errors": errors
     }
