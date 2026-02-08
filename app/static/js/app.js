@@ -446,11 +446,19 @@ async function moveChannelCategory(channelId, newCategoryId) {
         });
 
         if (response.ok) {
-            alert('채널이 이동되었습니다.');
             loadChannels();
         } else {
             const error = await response.json();
-            alert(error.detail || '채널 이동 실패');
+            let errorMsg = '채널 이동 실패';
+            if (typeof error.detail === 'string') {
+                errorMsg = error.detail;
+            } else if (Array.isArray(error.detail)) {
+                errorMsg = error.detail.map(e => e.msg || JSON.stringify(e)).join(', ');
+            } else if (error.detail) {
+                errorMsg = JSON.stringify(error.detail);
+            }
+            console.error('채널 이동 실패:', error);
+            alert('채널 이동 실패: ' + errorMsg);
         }
     } catch (error) {
         console.error('채널 이동 실패:', error);
