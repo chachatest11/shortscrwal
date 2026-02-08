@@ -562,10 +562,11 @@ async function toggleChannelActive(channelId) {
 }
 
 function toggleChannelSelection(channelId, isChecked) {
+    const id = parseInt(channelId);
     if (isChecked) {
-        selectedChannelIds.add(channelId);
+        selectedChannelIds.add(id);
     } else {
-        selectedChannelIds.delete(channelId);
+        selectedChannelIds.delete(id);
     }
     updateBulkMoveUI();
     updateSelectAllCheckbox();
