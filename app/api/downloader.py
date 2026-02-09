@@ -50,8 +50,8 @@ class VideoDownloader:
             # yt-dlp 명령어
             command = [
                 "yt-dlp",
-                # 비디오+오디오 병합, 최대 가능한 해상도
-                "-f", "bv*+ba/b",
+                # 1080p 우선, 없으면 그 이하 화질 (세로 영상의 경우 height=1920이 1080p)
+                "-f", "bestvideo[height<=1920]+bestaudio/best[height<=1920]",
                 # 병합 출력 형식을 MP4로 지정
                 "--merge-output-format", "mp4",
                 # YouTube 제한 우회 (Android 클라이언트 사용)
