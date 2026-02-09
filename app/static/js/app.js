@@ -1292,12 +1292,37 @@ async function downloadSelected() {
         result.results.forEach(item => {
             const resultItem = document.createElement('div');
             resultItem.className = `download-result-item ${item.status}`;
-            resultItem.innerHTML = `
-                <strong>${escapeHtml(item.video_title || item.video_id)}</strong><br>
-                ${item.status === 'done' ? '✓ 다운로드 완료' : `✗ 실패: ${item.error}`}
-            `;
+
+            if (item.status === 'done') {
+                // 다운로드 완료된 파일 - 다운로드 링크 추가
+                resultItem.innerHTML = `
+                    <strong>${escapeHtml(item.video_title || item.video_id)}</strong><br>
+                    ✓ 다운로드 완료
+                    <button class="btn-secondary btn-small" style="margin-left: 8px;" onclick="triggerFileDownload('${item.video_id}', '${escapeHtml(item.video_title || item.video_id)}')">
+                        💾 파일 저장
+                    </button>
+                `;
+            } else {
+                resultItem.innerHTML = `
+                    <strong>${escapeHtml(item.video_title || item.video_id)}</strong><br>
+                    ✗ 실패: ${item.error}
+                `;
+            }
             resultsEl.appendChild(resultItem);
         });
+
+        // 성공한 파일들 자동 다운로드
+        if (result.success > 0) {
+            statusEl.textContent += ' - 파일 저장 중...';
+            for (const item of result.results) {
+                if (item.status === 'done') {
+                    await triggerFileDownload(item.video_id, item.video_title || item.video_id);
+                    // 파일 간 딜레이 (브라우저 다운로드 제한 방지)
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            }
+            statusEl.textContent = `완료: ${result.success}개 파일이 다운로드 폴더에 저장되었습니다`;
+        }
 
         // 3초 후 자동 닫기 (성공 시)
         if (result.failed === 0) {
@@ -1311,6 +1336,25 @@ async function downloadSelected() {
         statusEl.textContent = '다운로드 중 오류가 발생했습니다.';
         alert('다운로드에 실패했습니다.');
     }
+}
+
+async function triggerFileDownload(videoId, videoTitle) {
+    try {
+        // 파일 다운로드 트리거
+        const link = document.createElement('a');
+        link.href = `/api/downloads/file/${videoId}`;
+        link.download = `${sanitizeFilename(videoTitle)}.mp4`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } catch (error) {
+        console.error('파일 다운로드 실패:', videoId, error);
+    }
+}
+
+function sanitizeFilename(filename) {
+    // 파일명에 사용할 수 없는 문자 제거
+    return filename.replace(/[<>:"/\\|?*]/g, '_').substring(0, 200);
 }
 
 function closeDownloadModal() {
