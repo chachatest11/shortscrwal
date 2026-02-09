@@ -35,11 +35,21 @@ def search_videos(data: SearchRequest):
     # 1. 활성 채널 로드
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, channel_id, title
-            FROM channels
-            WHERE category_id = ? AND is_active = 1
-        """, (data.category_id,))
+
+        # category_id가 0이면 전체 채널, 아니면 해당 카테고리만
+        if data.category_id == 0:
+            cursor.execute("""
+                SELECT id, channel_id, title
+                FROM channels
+                WHERE is_active = 1
+            """)
+        else:
+            cursor.execute("""
+                SELECT id, channel_id, title
+                FROM channels
+                WHERE category_id = ? AND is_active = 1
+            """, (data.category_id,))
+
         channels = cursor.fetchall()
 
     if not channels:
