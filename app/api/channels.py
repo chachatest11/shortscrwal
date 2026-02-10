@@ -1,10 +1,12 @@
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from datetime import datetime
 from typing import List, Optional
 import re
 import json
 import io
+import csv
 import pandas as pd
 from ..db import get_db
 from ..models import Channel
@@ -660,3 +662,60 @@ async def upload_md_file(
         "results": results,
         "errors": errors
     }
+
+
+@router.get("/export/csv")
+def export_channels_csv(category_id: Optional[int] = None):
+    """채널 목록을 CSV 파일로 내보내기"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        if category_id and category_id != 0:
+            cursor.execute("""
+                SELECT c.title, c.channel_id, c.subscriber_count, c.country,
+                       c.is_active, cat.name as category_name, c.created_at
+                FROM channels c
+                LEFT JOIN categories cat ON c.category_id = cat.id
+                WHERE c.category_id = ?
+                ORDER BY cat.name, c.title
+            """, (category_id,))
+        else:
+            cursor.execute("""
+                SELECT c.title, c.channel_id, c.subscriber_count, c.country,
+                       c.is_active, cat.name as category_name, c.created_at
+                FROM channels c
+                LEFT JOIN categories cat ON c.category_id = cat.id
+                ORDER BY cat.name, c.title
+            """)
+
+        rows = cursor.fetchall()
+
+    # CSV 생성
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # 헤더
+    writer.writerow(["채널명", "채널ID", "구독자수", "국가", "활성여부", "카테고리", "등록일"])
+
+    # 데이터
+    for row in rows:
+        title, channel_id, subscriber_count, country, is_active, category_name, created_at = row
+        writer.writerow([
+            title or "",
+            f"https://www.youtube.com/channel/{channel_id}",
+            subscriber_count or 0,
+            country or "",
+            "활성" if is_active else "비활성",
+            category_name or "",
+            created_at[:10] if created_at else ""
+        ])
+
+    output.seek(0)
+
+    filename = f"channels_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8-sig",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )

@@ -40,7 +40,10 @@
                 <button class="btn-collapse" onclick="toggleChannelList()" id="channelToggleBtn">▶</button>
                 <h3>등록된 채널</h3>
             </div>
-            <button class="btn-primary" onclick="openAddChannelModal()">+ 채널 추가</button>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-secondary" onclick="exportChannelsCsv()">📥 CSV 내보내기</button>
+                <button class="btn-primary" onclick="openAddChannelModal()">+ 채널 추가</button>
+            </div>
         </div>
 
         <div id="channelsContent" class="channels-content collapsed">

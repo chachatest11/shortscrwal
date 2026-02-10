@@ -1357,6 +1357,18 @@ function sanitizeFilename(filename) {
     return filename.replace(/[<>:"/\\|?*]/g, '_').substring(0, 200);
 }
 
+function exportChannelsCsv() {
+    const url = currentCategoryId
+        ? `/api/channels/export/csv?category_id=${currentCategoryId}`
+        : `/api/channels/export/csv`;
+
+    const link = document.createElement('a');
+    link.href = url;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
 function closeDownloadModal() {
     const modal = document.getElementById('downloadModal');
     modal.classList.remove('active');
