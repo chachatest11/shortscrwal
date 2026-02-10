@@ -710,12 +710,13 @@ def export_channels_csv(category_id: Optional[int] = None):
             created_at[:10] if created_at else ""
         ])
 
-    output.seek(0)
+    # UTF-8 BOM으로 인코딩 (Excel에서 한글 깨짐 방지)
+    csv_bytes = output.getvalue().encode('utf-8-sig')
 
     filename = f"channels_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
     return StreamingResponse(
-        iter([output.getvalue()]),
+        iter([csv_bytes]),
         media_type="text/csv; charset=utf-8-sig",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
