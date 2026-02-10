@@ -287,46 +287,10 @@ class BulkMoveChannelsRequest(BaseModel):
     new_category_id: int
 
 
-@router.put("/{channel_id}/move_category")
-def move_channel_category(channel_id: int, data: MoveChannelRequest):
-    """채널을 다른 카테고리로 이동"""
-    with get_db() as conn:
-        cursor = conn.cursor()
-
-        # 채널 존재 확인
-        cursor.execute("SELECT id FROM channels WHERE id = ?", (channel_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="채널을 찾을 수 없습니다")
-
-        # 카테고리 존재 확인
-        cursor.execute("SELECT id FROM categories WHERE id = ?", (data.new_category_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다")
-
-        # 카테고리 변경
-        cursor.execute("""
-            UPDATE channels
-            SET category_id = ?, updated_at = ?
-            WHERE id = ?
-        """, (data.new_category_id, datetime.now().isoformat(), channel_id))
-        conn.commit()
-
-        return {
-            "success": True,
-            "channel_id": channel_id,
-            "new_category_id": data.new_category_id
-        }
-
-
 @router.put("/bulk/move_category")
 async def bulk_move_channels(request: Request, data: BulkMoveChannelsRequest):
     """여러 채널을 다른 카테고리로 한번에 이동"""
     try:
-        # 디버깅: 수신된 데이터 로깅
-        print(f"[DEBUG] Received bulk move request:")
-        print(f"  - channel_ids: {data.channel_ids} (type: {type(data.channel_ids)})")
-        print(f"  - new_category_id: {data.new_category_id} (type: {type(data.new_category_id)})")
-
         if not data.channel_ids:
             raise HTTPException(status_code=400, detail="이동할 채널을 선택하세요")
 
@@ -388,6 +352,37 @@ def bulk_delete_channels(data: BulkDeleteChannelsRequest):
             "success": True,
             "deleted_count": deleted_count,
             "total_requested": len(data.channel_ids)
+        }
+
+
+@router.put("/{channel_id}/move_category")
+def move_channel_category(channel_id: int, data: MoveChannelRequest):
+    """채널을 다른 카테고리로 이동"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+
+        # 채널 존재 확인
+        cursor.execute("SELECT id FROM channels WHERE id = ?", (channel_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="채널을 찾을 수 없습니다")
+
+        # 카테고리 존재 확인
+        cursor.execute("SELECT id FROM categories WHERE id = ?", (data.new_category_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다")
+
+        # 카테고리 변경
+        cursor.execute("""
+            UPDATE channels
+            SET category_id = ?, updated_at = ?
+            WHERE id = ?
+        """, (data.new_category_id, datetime.now().isoformat(), channel_id))
+        conn.commit()
+
+        return {
+            "success": True,
+            "channel_id": channel_id,
+            "new_category_id": data.new_category_id
         }
 
 
