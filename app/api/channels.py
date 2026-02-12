@@ -672,19 +672,19 @@ def export_channels_csv(category_id: Optional[int] = None):
 
         if category_id and category_id != 0:
             cursor.execute("""
-                SELECT c.title, c.channel_id, c.subscriber_count,
-                       (SELECT COUNT(*) FROM videos v WHERE v.channel_id = c.channel_id AND v.is_short = 1) as shorts_count,
-                       c.created_at
+                SELECT c.title, c.channel_id, c.subscriber_count, c.country,
+                       cat.name as category_name
                 FROM channels c
+                LEFT JOIN categories cat ON c.category_id = cat.id
                 WHERE c.category_id = ?
                 ORDER BY c.title
             """, (category_id,))
         else:
             cursor.execute("""
-                SELECT c.title, c.channel_id, c.subscriber_count,
-                       (SELECT COUNT(*) FROM videos v WHERE v.channel_id = c.channel_id AND v.is_short = 1) as shorts_count,
-                       c.created_at
+                SELECT c.title, c.channel_id, c.subscriber_count, c.country,
+                       cat.name as category_name
                 FROM channels c
+                LEFT JOIN categories cat ON c.category_id = cat.id
                 ORDER BY c.title
             """)
 
@@ -695,17 +695,17 @@ def export_channels_csv(category_id: Optional[int] = None):
     writer = csv.writer(output)
 
     # 헤더
-    writer.writerow(["채널명", "채널ID", "구독자수", "영상 수", "채널생성일"])
+    writer.writerow(["채널명", "채널ID", "구독자수", "국가", "카테고리"])
 
     # 데이터
     for row in rows:
-        title, channel_id, subscriber_count, shorts_count, created_at = row
+        title, channel_id, subscriber_count, country, category_name = row
         writer.writerow([
             title or "",
             f"https://www.youtube.com/channel/{channel_id}",
             subscriber_count or 0,
-            shorts_count or 0,
-            created_at[:10] if created_at else ""
+            country or "",
+            category_name or ""
         ])
 
     # UTF-8 BOM으로 인코딩 (Excel에서 한글 깨짐 방지)
