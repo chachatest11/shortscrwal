@@ -9,7 +9,8 @@ from .api import (
     search_router,
     downloads_router,
     settings_router,
-    api_keys_router
+    api_keys_router,
+    dashboard_router
 )
 
 # FastAPI 앱 생성
@@ -26,6 +27,7 @@ app.include_router(search_router)
 app.include_router(downloads_router)
 app.include_router(settings_router)
 app.include_router(api_keys_router)
+app.include_router(dashboard_router)
 
 
 @app.on_event("startup")
@@ -35,10 +37,8 @@ def startup_event():
     print("Database initialized")
 
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    """메인 페이지"""
-    # 카테고리 목록 조회 (채널 개수 포함)
+def load_categories_with_counts():
+    """카테고리 목록 (채널 개수 포함)과 전체 채널 개수 조회"""
     with get_db() as conn:
         cursor = conn.cursor()
 
@@ -66,8 +66,31 @@ async def index(request: Request):
             for row in category_rows
         ]
 
+    return categories, total_count
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    """메인 페이지"""
+    categories, total_count = load_categories_with_counts()
+
     return templates.TemplateResponse(
         "index.html",
+        {
+            "request": request,
+            "categories": categories,
+            "total_count": total_count
+        }
+    )
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    """채널 현황 대시보드 페이지"""
+    categories, total_count = load_categories_with_counts()
+
+    return templates.TemplateResponse(
+        "dashboard.html",
         {
             "request": request,
             "categories": categories,

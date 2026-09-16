@@ -4,6 +4,9 @@
 
 ## 주요 기능
 
+- **채널 대시보드** (`/dashboard`): 운영 중인 여러 채널의 구독자·조회수·영상 수·최근 업로드를 한 화면에서 확인
+  - 기간(24시간/7일/30일/90일) 대비 증감, 30일 구독자 추이, 기간 내 업로드 수, 업로드가 끊긴 채널 경고
+  - "지금 업데이트" 한 번으로 모든 활성 채널 갱신 (채널 50개당 API 쿼터 1 unit), 자동 업데이트(10분/30분/1시간)
 - **카테고리 관리**: 채널을 그룹별로 분류하여 관리
 - **채널 저장**: YouTube 채널 URL, 핸들(@), 채널 ID를 DB에 영구 저장
 - **실시간 영상 수집**: YouTube Data API v3를 통한 최신 쇼츠 메타데이터 수집
@@ -120,6 +123,17 @@ http://localhost:8000
 - "선택 영상 다운로드" 버튼 클릭
 - 다운로드된 파일은 `downloads/{채널명}/{video_id}.mp4` 경로에 저장
 
+### 6. 채널 대시보드 (다채널 현황 한눈에 보기)
+- 상단의 "📊 채널 대시보드" 버튼 또는 `http://localhost:8000/dashboard` 접속
+- 운영 중인 채널을 먼저 메인 페이지에서 등록하세요 (예: "내 채널" 카테고리를 만들고 채널 URL/@핸들/채널 ID 입력)
+- "🔄 지금 업데이트"를 누르면 YouTube Data API로 활성 채널 전체의 통계와 최근 영상을 가져와 저장합니다
+  - 갱신할 때마다 통계 스냅샷이 쌓이며, 이 스냅샷으로 기간 대비 증감과 30일 추이를 계산합니다
+  - 최초 1회 갱신 후에는 "기준 없음"으로 표시되고, 두 번째 갱신부터 증감이 표시됩니다
+- 필터: 기간(24시간/7일/30일/90일), 카테고리, 정렬(구독자/증가량/최근 업로드/업로드 오래된순 등), 채널명 검색
+- 채널 행을 클릭하면 최근 영상 목록(조회수/좋아요/댓글)이 펼쳐집니다
+- "자동 업데이트"를 켜면 브라우저가 열려 있는 동안 주기적으로 갱신합니다 (페이지를 열어둔 경우에만 동작)
+- 대시보드는 API 키 관리 모달의 활성 키를 자동으로 사용합니다 (키는 메인 페이지 "API 키 관리"에서 등록)
+
 ## 프로젝트 구조
 
 ```
@@ -133,7 +147,10 @@ shortscrwal/
 │   │   ├── categories.py       # 카테고리 API 라우터
 │   │   ├── channels.py         # 채널 API 라우터
 │   │   ├── search.py           # 검색/수집 API 라우터
-│   │   └── downloads.py        # 다운로드 API 라우터
+│   │   ├── downloads.py        # 다운로드 API 라우터
+│   │   ├── settings.py         # 설정 API 라우터
+│   │   ├── api_keys.py         # API 키 관리 라우터
+│   │   └── dashboard.py        # 채널 대시보드 API 라우터
 │   ├── models/
 │   │   ├── category.py         # 카테고리 모델
 │   │   ├── channel.py          # 채널 모델
@@ -141,10 +158,13 @@ shortscrwal/
 │   │   └── download.py         # 다운로드 모델
 │   ├── templates/
 │   │   ├── base.html           # 베이스 템플릿
-│   │   └── index.html          # 메인 페이지
+│   │   ├── index.html          # 메인 페이지
+│   │   └── dashboard.html      # 채널 대시보드 페이지
 │   ├── static/
 │   │   ├── css/style.css       # 스타일시트
-│   │   └── js/app.js           # JavaScript 클라이언트
+│   │   ├── css/dashboard.css   # 대시보드 스타일시트
+│   │   ├── js/app.js           # JavaScript 클라이언트
+│   │   └── js/dashboard.js     # 대시보드 클라이언트
 │   └── database.db             # SQLite 데이터베이스
 ├── downloads/                  # 다운로드된 영상 저장 폴더
 ├── requirements.txt            # Python 패키지 목록
@@ -165,10 +185,21 @@ shortscrwal/
 - `channel_id`: YouTube 채널 ID
 - `title`: 채널명
 - `subscriber_count`: 구독자 수
+- `subscriber_hidden`: 구독자 수 비공개 여부
 - `country`: 국가
 - `is_active`: 활성 상태
+- `view_count`, `video_count`: 채널 총 조회수 / 영상 수 (대시보드 갱신 시 저장)
+- `thumbnail_url`, `custom_url`, `uploads_playlist_id`, `published_at`: 채널 프로필 정보
+- `stats_updated_at`: 대시보드 통계 마지막 갱신 일시
 - `created_at`: 생성 일시
 - `updated_at`: 수정 일시
+
+### channel_snapshots (채널 통계 이력)
+- `id`: PRIMARY KEY
+- `channel_id`: YouTube 채널 ID
+- `subscriber_count`, `view_count`, `video_count`: 갱신 시점의 통계
+- `captured_at`: 갱신 일시
+- 최근 2일은 모든 스냅샷을 보관하고, 그 이전은 채널별로 하루 1개만 남깁니다
 
 ### videos (영상)
 - `id`: PRIMARY KEY
@@ -216,12 +247,25 @@ shortscrwal/
 - `GET /api/downloads/file/{video_id}` - 파일 다운로드
 - `GET /api/downloads/history` - 다운로드 히스토리
 
+### 채널 대시보드
+- `POST /api/dashboard/refresh` - 활성 채널 통계/최근 영상 갱신 (`category_id`, `include_videos`, `max_videos`)
+- `GET /api/dashboard/overview?category_id=0&days=7` - 대시보드 데이터 (현재 통계, 기간 대비 증감, 최근 업로드, 30일 추이, 합계)
+- `GET /api/dashboard/channels/{channel_id}/videos` - 채널의 최근 영상 목록 (DB)
+- `GET /api/dashboard/channels/{channel_id}/history?days=30` - 채널 통계 스냅샷 이력 (DB)
+
 ## 주의사항
 
 ### YouTube API 쿼터
 - YouTube Data API v3는 일일 쿼터 제한이 있습니다 (기본: 10,000 units/day)
 - 쿼터를 초과하면 API 호출이 실패합니다
-- 채널당 약 100-200 units 소모됩니다
+- 쇼츠 검색은 채널당 약 100-200 units 소모됩니다
+- 대시보드 갱신은 저렴합니다: `channels.list`는 채널 50개당 1 unit, 최근 영상 수집은 채널당 1 unit + 영상 50개당 1 unit
+  (예: 채널 30개 + 채널당 최근 영상 10개 = 약 37 units)
+
+### 대시보드에서 볼 수 있는 것 / 없는 것
+- 공개 API 키만으로 동작하므로 **공개 통계**(구독자 수, 총 조회수, 영상 수, 영상별 조회수/좋아요/댓글)만 조회합니다
+- 시청 시간, 수익, 트래픽 소스, 시청자 유지율 같은 **YouTube 애널리틱스 데이터**는 채널 소유자 OAuth 인증이 필요한
+  YouTube Analytics API 영역이라 현재 대시보드에는 포함되어 있지 않습니다
 
 ### 저작권 및 이용 약관
 - **이 도구는 권한이 있는 콘텐츠만 다운로드하는 용도로 사용하세요**

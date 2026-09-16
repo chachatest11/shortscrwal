@@ -15,13 +15,18 @@ class YouTubeAPI:
 
     BASE_URL = "https://www.googleapis.com/youtube/v3"
 
+    # 엔드포인트별 쿼터 비용 (search.list만 100 units, 나머지는 1 unit)
+    QUOTA_COST = {"search": 100}
+
     def __init__(self, api_key: str):
         self.api_key = api_key
+        self.quota_used = 0  # 이 인스턴스로 소모한 쿼터 (추정치)
 
     def _request(self, endpoint: str, params: dict) -> dict:
         """API 요청 헬퍼"""
         params["key"] = self.api_key
         url = f"{self.BASE_URL}/{endpoint}"
+        self.quota_used += self.QUOTA_COST.get(endpoint, 1)
         response = requests.get(url, params=params, timeout=30)
 
         # 쿼터 초과 에러 체크
@@ -147,9 +152,59 @@ class YouTubeAPI:
                 "country": snippet.get("country"),
                 "thumbnail": snippet.get("thumbnails", {}).get("default", {}).get("url")
             }
+        except QuotaExceededException:
+            raise
         except Exception as e:
             print(f"Error getting channel info: {e}")
             return None
+
+    def get_channels_batch(self, channel_ids: List[str]) -> Dict[str, Dict]:
+        """
+        여러 채널의 정보/통계를 한 번에 가져오기 (대시보드용)
+
+        channels.list는 한 번에 최대 50개 ID를 받고 호출당 쿼터 1 unit만 소모하므로
+        채널 수가 많아도 매우 저렴하게 현황을 갱신할 수 있다.
+
+        Returns: {channel_id: {...}} (응답에 없는 채널은 포함되지 않음 - 삭제/비공개 등)
+        """
+        result_map: Dict[str, Dict] = {}
+
+        for i in range(0, len(channel_ids), 50):
+            batch = channel_ids[i:i + 50]
+            result = self._request("channels", {
+                "part": "snippet,statistics,contentDetails",
+                "id": ",".join(batch),
+                "maxResults": 50
+            })
+
+            for item in result.get("items", []):
+                snippet = item.get("snippet", {})
+                statistics = item.get("statistics", {})
+                content_details = item.get("contentDetails", {})
+                thumbnails = snippet.get("thumbnails", {})
+                thumbnail_url = (
+                    thumbnails.get("medium", {}).get("url") or
+                    thumbnails.get("default", {}).get("url")
+                )
+
+                result_map[item["id"]] = {
+                    "channel_id": item["id"],
+                    "title": snippet.get("title"),
+                    "description": snippet.get("description"),
+                    "custom_url": snippet.get("customUrl"),
+                    "published_at": snippet.get("publishedAt"),
+                    "country": snippet.get("country"),
+                    "thumbnail_url": thumbnail_url,
+                    "subscriber_count": int(statistics.get("subscriberCount") or 0),
+                    "subscriber_hidden": bool(statistics.get("hiddenSubscriberCount", False)),
+                    "view_count": int(statistics.get("viewCount") or 0),
+                    "video_count": int(statistics.get("videoCount") or 0),
+                    "uploads_playlist_id": (
+                        content_details.get("relatedPlaylists", {}).get("uploads")
+                    ),
+                }
+
+        return result_map
 
     def get_channel_uploads_playlist_id(self, channel_id: str) -> Optional[str]:
         """채널의 업로드 플레이리스트 ID 가져오기"""
@@ -194,6 +249,8 @@ class YouTubeAPI:
                 if not page_token:
                     break
 
+        except QuotaExceededException:
+            raise
         except Exception as e:
             print(f"Error getting videos from playlist: {e}")
 
@@ -252,6 +309,8 @@ class YouTubeAPI:
                     }
                     all_videos.append(video_data)
 
+            except QuotaExceededException:
+                raise
             except Exception as e:
                 print(f"Error getting video details: {e}")
 

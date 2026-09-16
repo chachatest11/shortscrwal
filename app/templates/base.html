@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Assets to the Money{% endblock %}</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=4">
+    <link rel="stylesheet" href="/static/css/style.css?v=5">
+    {% block head %}{% endblock %}
 </head>
 <body>
     {% block content %}{% endblock %}
     <script src="/static/js/app.js?v=5"></script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

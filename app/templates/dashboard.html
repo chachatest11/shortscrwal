@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}채널 대시보드 - Assets to the Money{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="/static/css/dashboard.css?v=1">
+{% endblock %}
+
+{% block content %}
+<div class="app-container dashboard-page">
+    <!-- 헤더 -->
+    <header class="header dash-header">
+        <div class="dash-header-left">
+            <h1 class="logo">Assets to the Money</h1>
+            <nav class="page-nav" aria-label="페이지 이동">
+                <a href="/" class="page-nav-link">쇼츠 수집</a>
+                <a href="/dashboard" class="page-nav-link active" aria-current="page">채널 대시보드</a>
+            </nav>
+        </div>
+        <div class="header-actions dash-header-actions">
+            <span class="last-refresh" id="lastRefreshLabel">마지막 업데이트: -</span>
+            <button class="btn-primary" id="btnRefresh" onclick="refreshDashboard()">🔄 지금 업데이트</button>
+        </div>
+    </header>
+
+    <!-- 필터 행: 아래 모든 요약/표의 범위를 결정 -->
+    <div class="dash-toolbar">
+        <div class="dash-filter">
+            <label for="periodSelect">기간</label>
+            <select id="periodSelect">
+                <option value="1">최근 24시간</option>
+                <option value="7" selected>최근 7일</option>
+                <option value="30">최근 30일</option>
+                <option value="90">최근 90일</option>
+            </select>
+        </div>
+        <div class="dash-filter">
+            <label for="categorySelect">카테고리</label>
+            <select id="categorySelect">
+                <option value="0">전체 ({{ total_count }})</option>
+                {% for category in categories %}
+                <option value="{{ category.id }}">{{ category.name }} ({{ category.channel_count }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="dash-filter">
+            <label for="sortSelect">정렬</label>
+            <select id="sortSelect">
+                <option value="subs_desc">구독자 많은순</option>
+                <option value="subs_delta_desc">구독자 증가순</option>
+                <option value="views_delta_desc">조회수 증가순</option>
+                <option value="latest_upload">최근 업로드순</option>
+                <option value="stale_first">업로드 오래된순</option>
+                <option value="uploads_desc">기간 업로드 많은순</option>
+                <option value="title_asc">채널명순</option>
+            </select>
+        </div>
+        <div class="dash-filter">
+            <label for="autoRefreshSelect">자동 업데이트</label>
+            <select id="autoRefreshSelect">
+                <option value="0">끔</option>
+                <option value="10">10분마다</option>
+                <option value="30">30분마다</option>
+                <option value="60">1시간마다</option>
+            </select>
+        </div>
+        <div class="dash-filter dash-filter-narrow">
+            <label for="maxVideosInput">채널당 최근 영상</label>
+            <input type="number" id="maxVideosInput" value="10" min="1" max="50">
+        </div>
+        <div class="dash-filter dash-filter-search">
+            <label for="searchInput">검색</label>
+            <input type="search" id="searchInput" placeholder="채널명으로 찾기">
+        </div>
+    </div>
+
+    <!-- 상태 메시지 -->
+    <div class="dash-message" id="dashMessage" style="display: none;" role="status" aria-live="polite"></div>
+
+    <!-- 전체 요약 (KPI 타일) -->
+    <section class="kpi-row" id="kpiRow" aria-label="전체 요약">
+        <!-- 동적으로 채워짐 -->
+    </section>
+
+    <!-- 채널 현황 표 -->
+    <section class="dash-panel">
+        <div class="dash-panel-header">
+            <h3>채널 현황 <span class="dash-count" id="channelCountLabel"></span></h3>
+            <span class="dash-hint">행을 클릭하면 최근 영상 목록이 펼쳐집니다</span>
+        </div>
+        <div class="table-wrap">
+            <table class="channel-table" id="channelTable">
+                <thead>
+                    <tr>
+                        <th scope="col">채널</th>
+                        <th scope="col" class="num">구독자</th>
+                        <th scope="col" class="num">총 조회수</th>
+                        <th scope="col" class="num">영상 수</th>
+                        <th scope="col" class="num">기간 업로드</th>
+                        <th scope="col">최근 업로드</th>
+                        <th scope="col">구독자 추이 (30일)</th>
+                        <th scope="col" class="col-expand"><span class="sr-only">상세</span></th>
+                    </tr>
+                </thead>
+                <tbody id="channelTableBody">
+                    <!-- 동적으로 채워짐 -->
+                </tbody>
+            </table>
+        </div>
+        <div class="dash-empty" id="emptyState" style="display: none;"></div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/dashboard.js?v=1"></script>
+{% endblock %}

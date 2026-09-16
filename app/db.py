@@ -51,6 +51,14 @@ def init_db():
                 country TEXT,
                 language_hint TEXT,
                 is_active INTEGER NOT NULL DEFAULT 1,
+                subscriber_hidden INTEGER NOT NULL DEFAULT 0,
+                view_count INTEGER,
+                video_count INTEGER,
+                thumbnail_url TEXT,
+                uploads_playlist_id TEXT,
+                custom_url TEXT,
+                published_at TEXT,
+                stats_updated_at DATETIME,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL,
                 FOREIGN KEY (category_id) REFERENCES categories(id),
@@ -63,6 +71,39 @@ def init_db():
             cursor.execute("ALTER TABLE channels ADD COLUMN description TEXT")
         except sqlite3.OperationalError:
             pass  # 컬럼이 이미 존재함
+
+        # 대시보드용 채널 통계 컬럼 추가 (기존 DB 마이그레이션)
+        for column_def in (
+            "subscriber_hidden INTEGER NOT NULL DEFAULT 0",
+            "view_count INTEGER",
+            "video_count INTEGER",
+            "thumbnail_url TEXT",
+            "uploads_playlist_id TEXT",
+            "custom_url TEXT",
+            "published_at TEXT",
+            "stats_updated_at DATETIME",
+        ):
+            try:
+                cursor.execute(f"ALTER TABLE channels ADD COLUMN {column_def}")
+            except sqlite3.OperationalError:
+                pass  # 컬럼이 이미 존재함
+
+        # channel_snapshots 테이블 (채널 통계 이력 - 대시보드 증감 계산용)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS channel_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id TEXT NOT NULL,
+                subscriber_count INTEGER,
+                view_count INTEGER,
+                video_count INTEGER,
+                captured_at DATETIME NOT NULL
+            )
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_snapshots_channel_captured
+            ON channel_snapshots(channel_id, captured_at)
+        """)
 
         # videos 테이블
         cursor.execute("""
@@ -170,6 +211,7 @@ def reset_db():
     """데이터베이스 초기화 (테스트용)"""
     with get_db() as conn:
         cursor = conn.cursor()
+        cursor.execute("DROP TABLE IF EXISTS channel_snapshots")
         cursor.execute("DROP TABLE IF EXISTS downloads")
         cursor.execute("DROP TABLE IF EXISTS videos")
         cursor.execute("DROP TABLE IF EXISTS channels")
