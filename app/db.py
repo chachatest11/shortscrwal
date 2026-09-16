@@ -1,220 +1,195 @@
+"""SQLite 연결, 스키마, 설정 접근"""
 import sqlite3
-from datetime import datetime
-from typing import Optional, List
 from contextlib import contextmanager
+from typing import Any, Dict, Iterator, Optional
 
-DATABASE_PATH = "app/database.db"
+from . import config
+from .util import utc_now_iso
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    youtube_id TEXT NOT NULL UNIQUE,
+    title TEXT,
+    handle TEXT,
+    description TEXT,
+    thumbnail_url TEXT,
+    country TEXT,
+    published_at TEXT,
+    uploads_playlist_id TEXT,
+    group_id INTEGER NOT NULL DEFAULT 1 REFERENCES groups(id),
+    is_active INTEGER NOT NULL DEFAULT 1,
+    memo TEXT NOT NULL DEFAULT '',
+    subscriber_count INTEGER,
+    subscriber_hidden INTEGER NOT NULL DEFAULT 0,
+    view_count INTEGER,
+    video_count INTEGER,
+    stats_updated_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_channels_group ON channels(group_id);
+
+CREATE TABLE IF NOT EXISTS snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    subscriber_count INTEGER,
+    view_count INTEGER,
+    video_count INTEGER,
+    captured_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_channel_captured ON snapshots(channel_id, captured_at);
+
+CREATE TABLE IF NOT EXISTS videos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    youtube_id TEXT NOT NULL UNIQUE,
+    title TEXT,
+    published_at TEXT,
+    duration_seconds INTEGER,
+    is_short INTEGER NOT NULL DEFAULT 0,
+    thumbnail_url TEXT,
+    view_count INTEGER,
+    like_count INTEGER,
+    comment_count INTEGER,
+    view_count_prev INTEGER,
+    stats_prev_at TEXT,
+    stats_updated_at TEXT,
+    first_seen_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_videos_channel_published ON videos(channel_id, published_at);
+CREATE INDEX IF NOT EXISTS idx_videos_published ON videos(published_at);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    api_key TEXT NOT NULL UNIQUE,
+    name TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    quota_exceeded INTEGER NOT NULL DEFAULT 0,
+    quota_exceeded_at TEXT,
+    used_today INTEGER NOT NULL DEFAULT 0,
+    used_date TEXT,
+    last_used_at TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS refresh_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    channels_total INTEGER NOT NULL DEFAULT 0,
+    channels_updated INTEGER NOT NULL DEFAULT 0,
+    videos_updated INTEGER NOT NULL DEFAULT 0,
+    quota_used INTEGER NOT NULL DEFAULT 0,
+    error TEXT
+);
+"""
+
+DEFAULT_GROUP_ID = 1
+DEFAULT_GROUP_NAME = "기본"
 
 
 @contextmanager
-def get_db():
-    """데이터베이스 연결 컨텍스트 매니저"""
-    conn = sqlite3.connect(DATABASE_PATH)
+def connect() -> Iterator[sqlite3.Connection]:
+    """연결 컨텍스트: 정상 종료 시 commit, 예외 시 rollback"""
+    conn = sqlite3.connect(str(config.DB_PATH), timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     try:
         yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
 
-def init_db():
-    """데이터베이스 테이블 생성 및 기본 데이터 삽입"""
-    with get_db() as conn:
-        cursor = conn.cursor()
-
-        # categories 테이블
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS categories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT UNIQUE NOT NULL,
-                display_order INTEGER DEFAULT 0,
-                created_at DATETIME NOT NULL
-            )
-        """)
-
-        # display_order 컬럼 추가 (기존 DB 마이그레이션)
+def init_db() -> None:
+    """테이블 생성, 기본 그룹/설정 삽입"""
+    config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with connect() as conn:
         try:
-            cursor.execute("ALTER TABLE categories ADD COLUMN display_order INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # 컬럼이 이미 존재함
+            conn.execute("PRAGMA journal_mode = WAL")
+        except sqlite3.DatabaseError:
+            pass
+        conn.executescript(SCHEMA)
 
-        # channels 테이블
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS channels (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                category_id INTEGER NOT NULL,
-                channel_input TEXT NOT NULL,
-                channel_id TEXT NOT NULL,
-                title TEXT,
-                description TEXT,
-                subscriber_count INTEGER,
-                country TEXT,
-                language_hint TEXT,
-                is_active INTEGER NOT NULL DEFAULT 1,
-                subscriber_hidden INTEGER NOT NULL DEFAULT 0,
-                view_count INTEGER,
-                video_count INTEGER,
-                thumbnail_url TEXT,
-                uploads_playlist_id TEXT,
-                custom_url TEXT,
-                published_at TEXT,
-                stats_updated_at DATETIME,
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL,
-                FOREIGN KEY (category_id) REFERENCES categories(id),
-                UNIQUE(category_id, channel_id)
+        row = conn.execute("SELECT id FROM groups WHERE id = ?", (DEFAULT_GROUP_ID,)).fetchone()
+        if not row:
+            conn.execute(
+                "INSERT INTO groups (id, name, sort_order, created_at) VALUES (?, ?, 0, ?)",
+                (DEFAULT_GROUP_ID, DEFAULT_GROUP_NAME, utc_now_iso()),
             )
-        """)
 
-        # description 컬럼 추가 (기존 DB 마이그레이션)
+        for key, value in config.DEFAULT_SETTINGS.items():
+            conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, value))
+
+        # 비정상 종료로 남은 '실행 중' 기록 정리
+        conn.execute(
+            "UPDATE refresh_runs SET status = 'failed', finished_at = ?, error = ? WHERE status = 'running'",
+            (utc_now_iso(), "서버가 갱신 도중 종료되었습니다"),
+        )
+
+
+# ---------- 설정 ----------
+
+def get_settings(conn: sqlite3.Connection) -> Dict[str, str]:
+    rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    merged = dict(config.DEFAULT_SETTINGS)
+    merged.update({row["key"]: row["value"] for row in rows})
+    return merged
+
+
+def get_setting(conn: sqlite3.Connection, key: str, default: Optional[str] = None) -> Optional[str]:
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    if row is None:
+        return config.DEFAULT_SETTINGS.get(key, default)
+    return row["value"]
+
+
+def set_setting(conn: sqlite3.Connection, key: str, value: Any) -> None:
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, str(value)),
+    )
+
+
+def typed_settings(raw: Dict[str, str]) -> Dict[str, Any]:
+    """문자열 설정 → 타입 변환"""
+    out: Dict[str, Any] = {}
+    for key, rule in config.SETTING_RULES.items():
+        value = raw.get(key, config.DEFAULT_SETTINGS.get(key))
+        kind = rule["type"]
         try:
-            cursor.execute("ALTER TABLE channels ADD COLUMN description TEXT")
-        except sqlite3.OperationalError:
-            pass  # 컬럼이 이미 존재함
-
-        # 대시보드용 채널 통계 컬럼 추가 (기존 DB 마이그레이션)
-        for column_def in (
-            "subscriber_hidden INTEGER NOT NULL DEFAULT 0",
-            "view_count INTEGER",
-            "video_count INTEGER",
-            "thumbnail_url TEXT",
-            "uploads_playlist_id TEXT",
-            "custom_url TEXT",
-            "published_at TEXT",
-            "stats_updated_at DATETIME",
-        ):
-            try:
-                cursor.execute(f"ALTER TABLE channels ADD COLUMN {column_def}")
-            except sqlite3.OperationalError:
-                pass  # 컬럼이 이미 존재함
-
-        # channel_snapshots 테이블 (채널 통계 이력 - 대시보드 증감 계산용)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS channel_snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                channel_id TEXT NOT NULL,
-                subscriber_count INTEGER,
-                view_count INTEGER,
-                video_count INTEGER,
-                captured_at DATETIME NOT NULL
-            )
-        """)
-
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_snapshots_channel_captured
-            ON channel_snapshots(channel_id, captured_at)
-        """)
-
-        # videos 테이블
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS videos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                channel_id TEXT NOT NULL,
-                video_id TEXT NOT NULL UNIQUE,
-                title TEXT,
-                published_at DATETIME,
-                view_count INTEGER,
-                like_count INTEGER DEFAULT 0,
-                comment_count INTEGER DEFAULT 0,
-                thumbnail_url TEXT,
-                duration_seconds INTEGER,
-                is_short INTEGER NOT NULL DEFAULT 1,
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL
-            )
-        """)
-
-        # like_count, comment_count 컬럼 추가 (기존 DB 마이그레이션)
-        try:
-            cursor.execute("ALTER TABLE videos ADD COLUMN like_count INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # 컬럼이 이미 존재함
-
-        try:
-            cursor.execute("ALTER TABLE videos ADD COLUMN comment_count INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # 컬럼이 이미 존재함
-
-        # 인덱스 생성
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_videos_channel_id
-            ON videos(channel_id)
-        """)
-
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_videos_published_at
-            ON videos(published_at DESC)
-        """)
-
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_videos_view_count
-            ON videos(view_count DESC)
-        """)
-
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_videos_like_count
-            ON videos(like_count DESC)
-        """)
-
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_videos_comment_count
-            ON videos(comment_count DESC)
-        """)
-
-        # downloads 테이블
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS downloads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                video_id TEXT NOT NULL,
-                status TEXT NOT NULL,
-                file_path TEXT,
-                error_message TEXT,
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL
-            )
-        """)
-
-        # settings 테이블
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT,
-                updated_at DATETIME NOT NULL
-            )
-        """)
-
-        # api_keys 테이블
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS api_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                api_key TEXT NOT NULL UNIQUE,
-                name TEXT,
-                is_active INTEGER NOT NULL DEFAULT 1,
-                priority INTEGER NOT NULL DEFAULT 0,
-                quota_exceeded INTEGER NOT NULL DEFAULT 0,
-                last_used_at DATETIME,
-                created_at DATETIME NOT NULL,
-                updated_at DATETIME NOT NULL
-            )
-        """)
-
-        # 기본 카테고리 삽입
-        cursor.execute("""
-            INSERT OR IGNORE INTO categories (name, created_at)
-            VALUES (?, ?)
-        """, ("기본", datetime.now().isoformat()))
-
-        conn.commit()
+            if kind == "bool":
+                out[key] = str(value).lower() in ("1", "true", "yes", "on")
+            elif kind == "int":
+                out[key] = int(value)
+            elif kind == "float":
+                out[key] = float(value)
+            else:
+                out[key] = str(value)
+        except (TypeError, ValueError):
+            default = config.DEFAULT_SETTINGS[key]
+            out[key] = {"bool": default == "1", "int": int(default) if kind == "int" else float(default)}.get(kind, default) if kind != "str" else default
+    return out
 
 
-def reset_db():
-    """데이터베이스 초기화 (테스트용)"""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("DROP TABLE IF EXISTS channel_snapshots")
-        cursor.execute("DROP TABLE IF EXISTS downloads")
-        cursor.execute("DROP TABLE IF EXISTS videos")
-        cursor.execute("DROP TABLE IF EXISTS channels")
-        cursor.execute("DROP TABLE IF EXISTS categories")
-        conn.commit()
-    init_db()
+def row_to_dict(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
+    return dict(row) if row is not None else None
