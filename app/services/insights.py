@@ -24,10 +24,11 @@ def next_milestone(value: Optional[int]) -> Optional[int]:
 
 
 def views_per_day(view_count: Optional[int], published_at: Optional[str], now=None) -> Optional[float]:
+    """하루 평균 조회수. 게시 후 1일이 안 된 영상은 1일로 나눠 초기 급증이 부풀려지지 않게 한다."""
     age = days_since(published_at, now)
     if view_count is None or age is None:
         return None
-    return round(view_count / max(age, 1 / 24), 1)
+    return round(view_count / max(age, 1.0), 1)
 
 
 def channel_where(group_id: int, include_inactive: bool, alias: str = "c") -> Tuple[str, list]:
@@ -142,8 +143,11 @@ def video_dict(row, now=None) -> dict:
     }
 
 
+MIN_AGE_HOURS_FOR_BASELINE = 24  # 급상승 판정에 쓰는 영상은 게시 후 하루 이상 지난 것만
+
+
 def channel_medians(conn, channel_ids: List[int], window_days: int, now=None) -> Dict[int, Optional[float]]:
-    """채널별 '조회수/일' 중앙값 (게시 후 12시간 이상 지난 영상, 최근 window_days 일)"""
+    """채널별 '조회수/일' 중앙값 (게시 후 하루 이상 지난 영상, 최근 window_days 일, 표본 3개 이상)"""
     if not channel_ids:
         return {}
     now = now or utc_now()
@@ -151,14 +155,14 @@ def channel_medians(conn, channel_ids: List[int], window_days: int, now=None) ->
     rows = conn.execute(
         f"""SELECT channel_id, view_count, published_at FROM videos
             WHERE channel_id IN ({placeholders}) AND published_at >= ? AND published_at <= ?""",
-        (*channel_ids, ago_iso(days=window_days, now=now), ago_iso(hours=12, now=now)),
+        (*channel_ids, ago_iso(days=window_days, now=now), ago_iso(hours=MIN_AGE_HOURS_FOR_BASELINE, now=now)),
     ).fetchall()
     values: Dict[int, List[float]] = {}
     for row in rows:
         vpd = views_per_day(row["view_count"], row["published_at"], now)
         if vpd is not None:
             values.setdefault(row["channel_id"], []).append(vpd)
-    return {cid: (median(v) if len(v) >= 3 else None) for cid, v in values.items()}
+    return {cid: (round(median(v)) if len(v) >= 3 else None) for cid, v in values.items()}
 
 
 def build_overview(conn, group_id: int = 0, days: int = 7, include_inactive: bool = False) -> dict:
@@ -366,7 +370,7 @@ def build_insights(conn, channels: List[dict], ids: List[int], settings: dict, n
         placeholders = ",".join("?" * len(ids))
         rows = conn.execute(
             f"""SELECT * FROM videos WHERE channel_id IN ({placeholders}) AND published_at >= ? AND published_at <= ?""",
-            (*ids, ago_iso(days=window_days, now=now), ago_iso(hours=12, now=now)),
+            (*ids, ago_iso(days=window_days, now=now), ago_iso(hours=MIN_AGE_HOURS_FOR_BASELINE, now=now)),
         ).fetchall()
         candidates = []
         for row in rows:

@@ -65,7 +65,7 @@ export const fmt = {
         const a = Math.abs(v);
         if (a >= 1e8) return sign + trim(a / 1e8, a >= 1e9 ? 0 : 1) + '억';
         if (a >= 1e4) return sign + trim(a / 1e4, a >= 1e6 ? 0 : 1) + '만';
-        return sign + a.toLocaleString('ko-KR');
+        return sign + Math.round(a).toLocaleString('ko-KR');
     },
     signed(n, compact = true) {
         if (n === null || n === undefined) return '—';

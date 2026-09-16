@@ -1,307 +1,159 @@
-# Assets to the Money
+# ChannelBoard — YouTube 다채널 운영 대시보드
 
-해외 양산형 쇼츠 채널의 영상을 수집하고 다운로드할 수 있는 웹 애플리케이션입니다.
+운영 중인 여러 YouTube 채널의 **구독자 · 조회수 · 영상 수 · 최근 업로드 · 증감 · 추이**를 한 화면에서 보고,
+업로드가 끊긴 채널, 구독자가 줄어드는 채널, 평소보다 잘 나가는 영상, 마일스톤 임박 같은 **운영 신호**를 자동으로 띄워 주는
+로컬 실행형 웹 앱입니다. YouTube 공식 **Data API v3** 키 하나면 동작하며, 채널 50개를 갱신하는 데 API 쿼터 1 unit만 씁니다.
 
-## 주요 기능
+> 기획안: [docs/PLAN.md](docs/PLAN.md) · 참고한 서비스/오픈소스도 기획안 2장에 정리되어 있습니다.
 
-- **채널 대시보드** (`/dashboard`): 운영 중인 여러 채널의 구독자·조회수·영상 수·최근 업로드를 한 화면에서 확인
-  - 기간(24시간/7일/30일/90일) 대비 증감, 30일 구독자 추이, 기간 내 업로드 수, 업로드가 끊긴 채널 경고
-  - "지금 업데이트" 한 번으로 모든 활성 채널 갱신 (채널 50개당 API 쿼터 1 unit), 자동 업데이트(10분/30분/1시간)
-- **카테고리 관리**: 채널을 그룹별로 분류하여 관리
-- **채널 저장**: YouTube 채널 URL, 핸들(@), 채널 ID를 DB에 영구 저장
-- **실시간 영상 수집**: YouTube Data API v3를 통한 최신 쇼츠 메타데이터 수집
-- **필터링 및 정렬**: 조회수 필터, 최신순/조회수순 정렬
-- **일괄 다운로드**: 선택한 영상을 yt-dlp로 일괄 다운로드
-- **다크 테마 UI**: 카드형 그리드 레이아웃
+## 화면
 
-## 기술 스택
+| 화면 | 내용 |
+|---|---|
+| **대시보드** | 기간(24시간/7일/30일/90일)·그룹 필터, KPI 5개(채널·총 구독자·총 조회수·총 영상·기간 업로드), 인사이트(업로드 공백·구독자 감소·급상승 영상·마일스톤·오늘 업로드), 최근 업로드 피드, 채널 현황 표(증감·30일 추이 스파크라인, 정렬) |
+| **채널 상세** | KPI, 구독자 추이 차트, 일별 조회수 증가 차트, 일별 증감표(Social Blade 방식), 최근 영상 표(조회수/일·최근 증가·평소 대비 배수), 운영 메모 |
+| **채널 관리** | 채널 URL/@핸들/채널 ID/영상 URL 일괄 추가, 그룹(내 채널·서브 채널·참고 채널 …), 인라인 그룹 변경·활성 토글, 일괄 이동/삭제, CSV |
+| **영상** | 전체 채널 영상을 기간·유형(쇼츠/롱폼)·그룹·채널·정렬·검색으로 탐색, CSV |
+| **설정** | API 키 여러 개(자동 교대, 오늘 사용량), 자동 갱신 주기, 채널당 최근 영상 수, 급상승/업로드 공백 기준, 테마, 이전 버전 데이터 가져오기, 갱신 기록 |
 
-- **Backend**: Python, FastAPI
-- **Frontend**: Jinja2, Vanilla JavaScript, Custom CSS
-- **Database**: SQLite
-- **Video Download**: yt-dlp
-- **YouTube API**: YouTube Data API v3
+라이트/다크 테마, 모바일 레이아웃을 지원합니다.
 
-## 요구사항
+## 요구 사항
 
-- Python 3.8+
-- yt-dlp (영상 다운로드용)
-- YouTube Data API v3 Key
+- Python 3.9 이상
+- YouTube Data API v3 키 ([만드는 방법](#youtube-api-키-만들기))
+- 인터넷 연결 (YouTube API 호출용)
 
-## 설치 방법
-
-### 1. 저장소 클론
+## 설치와 실행
 
 ```bash
 git clone <repository-url>
 cd shortscrwal
-```
 
-### 2. Python 패키지 설치
-
-```bash
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-### 3. yt-dlp 설치
+브라우저에서 <http://localhost:8000> 을 엽니다. 자세한 단계별 설명은 [SETUP.md](SETUP.md)에 있습니다.
 
-**macOS (Homebrew):**
-```bash
-brew install yt-dlp
-```
+처음 열면 대시보드에 **시작하기** 카드가 뜹니다.
 
-**Linux (apt):**
-```bash
-sudo apt install yt-dlp
-```
+1. **설정 → YouTube API 키**에 키를 추가 (등록할 때 1 unit으로 동작을 확인합니다)
+2. **채널 관리 → 채널 추가**에 운영 채널을 한 줄에 하나씩 붙여넣기
+   - `https://www.youtube.com/@handle`, `https://www.youtube.com/channel/UC…`, `@handle`, `UC…`, 영상 링크(`watch?v=`, `youtu.be`, `/shorts/`) 모두 인식
+3. 오른쪽 위 **지금 업데이트** — 구독자·조회수·최근 영상을 수집합니다
 
-또는 pip으로 설치:
-```bash
-pip install yt-dlp
-```
+갱신할 때마다 통계 스냅샷이 쌓이고, 두 번째 갱신부터 기간 대비 증감과 추이가 표시됩니다.
+자동 갱신(기본 6시간)을 켜 두면 브라우저를 닫아도 서버가 주기적으로 갱신합니다.
 
-**Windows:**
-- [yt-dlp GitHub Releases](https://github.com/yt-dlp/yt-dlp/releases)에서 다운로드
-- 실행 파일을 PATH에 추가
+## YouTube API 키 만들기
 
-### 4. YouTube API Key 준비
+1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트를 만들거나 선택
+2. **API 및 서비스 → 라이브러리**에서 *YouTube Data API v3* 를 사용 설정
+3. **사용자 인증 정보 → 사용자 인증 정보 만들기 → API 키**
+4. 만든 키를 ChannelBoard **설정**에 추가
 
-1. [Google Cloud Console](https://console.cloud.google.com/)에 접속
-2. 새 프로젝트 생성 또는 기존 프로젝트 선택
-3. "API 및 서비스" > "라이브러리"로 이동
-4. "YouTube Data API v3" 검색 및 활성화
-5. "사용자 인증 정보" > "사용자 인증 정보 만들기" > "API 키" 선택
-6. 생성된 API 키 복사
+키마다 하루 10,000 units를 쓸 수 있습니다. 키를 여러 개 등록하면 하나가 쿼터를 다 쓸 때 자동으로 다음 키를 사용하고,
+쿼터일(태평양 시간 자정)이 바뀌면 사용량이 자동으로 초기화됩니다.
 
-## 실행 방법
+### 쿼터 비용
 
-### 서버 시작
+| 작업 | 비용 |
+|---|---|
+| 채널 통계 갱신 (`channels.list`) | 채널 50개당 1 unit |
+| 최근 영상 목록 (`playlistItems.list`) | 채널당 1 unit |
+| 영상 통계 (`videos.list`) | 영상 50개당 1 unit |
+| 채널 추가 | 채널당 약 1~3 units (커스텀 URL `/c/이름` 은 검색이 필요해 100 units) |
 
-```bash
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
+예: 채널 30개, 채널당 최근 영상 10개, 재수집 대상 영상 300개 → 1회 갱신 약 **37 units**. 6시간마다 갱신해도 하루 150 units 수준입니다.
 
-또는:
+## 인사이트 규칙
 
-```bash
-cd app
-python main.py
-```
+| 인사이트 | 규칙 (설정에서 조정 가능) |
+|---|---|
+| 업로드 공백 | 최신 영상이 N일(기본 7) 이상 지났거나 수집된 영상이 없음 |
+| 구독자 감소 | 선택한 기간 시작 시점보다 구독자가 줄어듦 |
+| 급상승 영상 | 채널의 최근 90일 영상 "조회수/일" 중앙값의 1.75배 이상, 또는 최근 두 갱신 사이 조회수 증가 상위 |
+| 마일스톤 | 다음 라운드 숫자(1천·5천·1만·5만·10만·50만·100만…)의 95% 이상이거나 기간 내 달성 |
+| 오늘 업로드 | 24시간 내 새 영상 |
 
-### 브라우저 접속
-
-```
-http://localhost:8000
-```
-
-## 사용 방법
-
-### 1. API Key 입력
-- 메인 화면 상단에 YouTube API Key 입력
-- 입력한 키는 브라우저 로컬 스토리지에 저장됩니다
-
-### 2. 카테고리 관리
-- "카테고리 관리" 버튼 클릭
-- 새 카테고리 추가, 수정, 삭제 가능
-- 기본 카테고리는 자동 생성됩니다
-
-### 3. 채널 등록
-- 채널 입력란에 YouTube 채널 정보 입력 (여러 줄 가능)
-- 지원 형식:
-  - `https://youtube.com/@channelname`
-  - `https://www.youtube.com/channel/UCxxxx`
-  - `UCxxxx` (채널 ID 직접 입력)
-- "검색" 버튼 클릭으로 채널 저장 및 영상 수집
-
-### 4. 영상 검색 및 필터링
-- 최대 영상 수 설정 (기본: 50개)
-- 검색 후 정렬 방식 선택 (최신순/조회수순)
-- 최소 조회수 필터 (만 단위)
-
-### 5. 영상 다운로드
-- 원하는 영상의 "영상추출" 체크박스 선택
-- "선택 영상 다운로드" 버튼 클릭
-- 다운로드된 파일은 `downloads/{채널명}/{video_id}.mp4` 경로에 저장
-
-### 6. 채널 대시보드 (다채널 현황 한눈에 보기)
-- 상단의 "📊 채널 대시보드" 버튼 또는 `http://localhost:8000/dashboard` 접속
-- 운영 중인 채널을 먼저 메인 페이지에서 등록하세요 (예: "내 채널" 카테고리를 만들고 채널 URL/@핸들/채널 ID 입력)
-- "🔄 지금 업데이트"를 누르면 YouTube Data API로 활성 채널 전체의 통계와 최근 영상을 가져와 저장합니다
-  - 갱신할 때마다 통계 스냅샷이 쌓이며, 이 스냅샷으로 기간 대비 증감과 30일 추이를 계산합니다
-  - 최초 1회 갱신 후에는 "기준 없음"으로 표시되고, 두 번째 갱신부터 증감이 표시됩니다
-- 필터: 기간(24시간/7일/30일/90일), 카테고리, 정렬(구독자/증가량/최근 업로드/업로드 오래된순 등), 채널명 검색
-- 채널 행을 클릭하면 최근 영상 목록(조회수/좋아요/댓글)이 펼쳐집니다
-- "자동 업데이트"를 켜면 브라우저가 열려 있는 동안 주기적으로 갱신합니다 (페이지를 열어둔 경우에만 동작)
-- 대시보드는 API 키 관리 모달의 활성 키를 자동으로 사용합니다 (키는 메인 페이지 "API 키 관리"에서 등록)
+"조회수/일"은 조회수 ÷ max(게시 후 경과일, 1)입니다.
 
 ## 프로젝트 구조
 
 ```
-shortscrwal/
-├── app/
-│   ├── main.py                 # FastAPI 메인 앱
-│   ├── db.py                   # 데이터베이스 초기화 및 연결
-│   ├── api/
-│   │   ├── youtube.py          # YouTube API 유틸리티
-│   │   ├── downloader.py       # yt-dlp 다운로더
-│   │   ├── categories.py       # 카테고리 API 라우터
-│   │   ├── channels.py         # 채널 API 라우터
-│   │   ├── search.py           # 검색/수집 API 라우터
-│   │   ├── downloads.py        # 다운로드 API 라우터
-│   │   ├── settings.py         # 설정 API 라우터
-│   │   ├── api_keys.py         # API 키 관리 라우터
-│   │   └── dashboard.py        # 채널 대시보드 API 라우터
-│   ├── models/
-│   │   ├── category.py         # 카테고리 모델
-│   │   ├── channel.py          # 채널 모델
-│   │   ├── video.py            # 비디오 모델
-│   │   └── download.py         # 다운로드 모델
-│   ├── templates/
-│   │   ├── base.html           # 베이스 템플릿
-│   │   ├── index.html          # 메인 페이지
-│   │   └── dashboard.html      # 채널 대시보드 페이지
-│   ├── static/
-│   │   ├── css/style.css       # 스타일시트
-│   │   ├── css/dashboard.css   # 대시보드 스타일시트
-│   │   ├── js/app.js           # JavaScript 클라이언트
-│   │   └── js/dashboard.js     # 대시보드 클라이언트
-│   └── database.db             # SQLite 데이터베이스
-├── downloads/                  # 다운로드된 영상 저장 폴더
-├── requirements.txt            # Python 패키지 목록
-└── README.md                   # 프로젝트 문서
+app/
+  main.py                 FastAPI 앱, 정적 파일, 스케줄러 시작
+  config.py               경로·상수·설정 규칙
+  db.py                   SQLite 스키마·연결·설정
+  util.py                 시간·숫자 유틸
+  services/
+    youtube.py            Data API 클라이언트 (키 자동 교대, 쿼터 집계)
+    resolver.py           입력(URL/@핸들/ID/영상 링크) → 채널 ID
+    refresh.py            갱신 엔진 (진행률, 실행 기록, 스냅샷 압축)
+    insights.py           대시보드 데이터·인사이트 계산
+    scheduler.py          자동 갱신 루프
+    legacy_import.py      이전 버전(app/database.db) 데이터 가져오기
+  routers/                REST API (overview, channels, groups, videos, refresh, keys, settings, export)
+  static/                 프론트엔드 (index.html, css/, js/, vendor/chartjs)
+docs/PLAN.md              기획안
+tests/                    pytest (가짜 YouTube API)
+data/app.db               런타임 DB (자동 생성, git 제외)
 ```
 
-## 데이터베이스 스키마
+기술 스택: Python · FastAPI · SQLite · 바닐라 JavaScript(ES 모듈) · Chart.js 4 (MIT, 동봉). 빌드 도구가 필요 없습니다.
 
-### categories (카테고리)
-- `id`: PRIMARY KEY
-- `name`: 카테고리 이름 (UNIQUE)
-- `created_at`: 생성 일시
+## API
 
-### channels (채널)
-- `id`: PRIMARY KEY
-- `category_id`: 카테고리 ID (FK)
-- `channel_input`: 사용자 입력값
-- `channel_id`: YouTube 채널 ID
-- `title`: 채널명
-- `subscriber_count`: 구독자 수
-- `subscriber_hidden`: 구독자 수 비공개 여부
-- `country`: 국가
-- `is_active`: 활성 상태
-- `view_count`, `video_count`: 채널 총 조회수 / 영상 수 (대시보드 갱신 시 저장)
-- `thumbnail_url`, `custom_url`, `uploads_playlist_id`, `published_at`: 채널 프로필 정보
-- `stats_updated_at`: 대시보드 통계 마지막 갱신 일시
-- `created_at`: 생성 일시
-- `updated_at`: 수정 일시
+모든 응답은 JSON입니다. 서버 실행 후 <http://localhost:8000/docs> 에서 전체 스키마를 볼 수 있습니다.
 
-### channel_snapshots (채널 통계 이력)
-- `id`: PRIMARY KEY
-- `channel_id`: YouTube 채널 ID
-- `subscriber_count`, `view_count`, `video_count`: 갱신 시점의 통계
-- `captured_at`: 갱신 일시
-- 최근 2일은 모든 스냅샷을 보관하고, 그 이전은 채널별로 하루 1개만 남깁니다
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| GET | `/api/overview?group_id&days` | 대시보드 데이터 (요약·채널·인사이트·최근 업로드) |
+| GET / POST | `/api/channels` | 채널 목록 / 일괄 추가 `{inputs: [...], group_id}` |
+| GET / PATCH / DELETE | `/api/channels/{id}` | 상세(`?days`) / 그룹·활성·메모 수정 / 삭제 |
+| POST | `/api/channels/bulk` | `{ids, action: move|activate|deactivate|delete, group_id}` |
+| GET | `/api/channels/{id}/history?days` · `/videos` | 일별 증감 · 영상 목록 |
+| GET / POST / PATCH / DELETE | `/api/groups` | 그룹 CRUD, `POST /api/groups/reorder` |
+| GET | `/api/videos?group_id&channel_id&days&kind&sort&q&limit&offset` | 영상 탐색 |
+| POST / GET | `/api/refresh` · `/api/refresh/status` · `/api/refresh/runs` | 갱신 시작(`{scope: all|group|channel}`) · 진행 상태 · 기록 |
+| GET / POST / PATCH / DELETE | `/api/keys` | API 키 관리, `POST /api/keys/{id}/test`, `/reset` |
+| GET / PUT | `/api/settings` | 설정 조회/저장 `{values: {...}}`, `POST /api/settings/import-legacy` |
+| GET | `/api/export/channels.csv` · `/api/export/videos.csv` | CSV 내보내기 |
 
-### videos (영상)
-- `id`: PRIMARY KEY
-- `channel_id`: YouTube 채널 ID
-- `video_id`: YouTube 영상 ID (UNIQUE)
-- `title`: 영상 제목
-- `published_at`: 업로드 일시
-- `view_count`: 조회수
-- `thumbnail_url`: 썸네일 URL
-- `duration_seconds`: 영상 길이
-- `is_short`: 쇼츠 여부
-- `created_at`: 생성 일시
-- `updated_at`: 수정 일시
+## 환경 변수
 
-### downloads (다운로드)
-- `id`: PRIMARY KEY
-- `video_id`: YouTube 영상 ID
-- `status`: 상태 (queued/running/done/failed)
-- `file_path`: 파일 경로
-- `error_message`: 에러 메시지
-- `created_at`: 생성 일시
-- `updated_at`: 수정 일시
+| 변수 | 기본값 | 설명 |
+|---|---|---|
+| `CHANNELBOARD_DB` | `data/app.db` | SQLite 파일 위치 |
+| `CHANNELBOARD_LEGACY_DB` | `app/database.db` | 이전 버전 DB 위치 (있으면 첫 실행 때 자동 가져오기) |
+| `CHANNELBOARD_SCHEDULER` | `1` | `0`이면 자동 갱신 루프를 끔 |
 
-## API 엔드포인트
+## 테스트
 
-### 카테고리
-- `GET /api/categories/` - 카테고리 목록 조회
-- `POST /api/categories/` - 카테고리 생성
-- `PUT /api/categories/{id}` - 카테고리 수정
-- `DELETE /api/categories/{id}` - 카테고리 삭제
-
-### 채널
-- `GET /api/channels/` - 채널 목록 조회
-- `POST /api/channels/bulk_upsert` - 채널 일괄 저장/업데이트
-- `PUT /api/channels/{id}/toggle_active` - 채널 활성/비활성 토글
-- `DELETE /api/channels/{id}` - 채널 삭제
-
-### 검색/수집
-- `POST /api/search/` - 영상 검색 및 수집
-- `GET /api/search/videos` - 저장된 영상 조회
-
-### 다운로드
-- `POST /api/downloads/start` - 다운로드 시작
-- `GET /api/downloads/status` - 다운로드 상태 조회
-- `GET /api/downloads/file/{video_id}` - 파일 다운로드
-- `GET /api/downloads/history` - 다운로드 히스토리
-
-### 채널 대시보드
-- `POST /api/dashboard/refresh` - 활성 채널 통계/최근 영상 갱신 (`category_id`, `include_videos`, `max_videos`)
-- `GET /api/dashboard/overview?category_id=0&days=7` - 대시보드 데이터 (현재 통계, 기간 대비 증감, 최근 업로드, 30일 추이, 합계)
-- `GET /api/dashboard/channels/{channel_id}/videos` - 채널의 최근 영상 목록 (DB)
-- `GET /api/dashboard/channels/{channel_id}/history?days=30` - 채널 통계 스냅샷 이력 (DB)
-
-## 주의사항
-
-### YouTube API 쿼터
-- YouTube Data API v3는 일일 쿼터 제한이 있습니다 (기본: 10,000 units/day)
-- 쿼터를 초과하면 API 호출이 실패합니다
-- 쇼츠 검색은 채널당 약 100-200 units 소모됩니다
-- 대시보드 갱신은 저렴합니다: `channels.list`는 채널 50개당 1 unit, 최근 영상 수집은 채널당 1 unit + 영상 50개당 1 unit
-  (예: 채널 30개 + 채널당 최근 영상 10개 = 약 37 units)
-
-### 대시보드에서 볼 수 있는 것 / 없는 것
-- 공개 API 키만으로 동작하므로 **공개 통계**(구독자 수, 총 조회수, 영상 수, 영상별 조회수/좋아요/댓글)만 조회합니다
-- 시청 시간, 수익, 트래픽 소스, 시청자 유지율 같은 **YouTube 애널리틱스 데이터**는 채널 소유자 OAuth 인증이 필요한
-  YouTube Analytics API 영역이라 현재 대시보드에는 포함되어 있지 않습니다
-
-### 저작권 및 이용 약관
-- **이 도구는 권한이 있는 콘텐츠만 다운로드하는 용도로 사용하세요**
-- YouTube 서비스 약관을 준수하세요
-- 타인의 저작권을 침해하지 마세요
-- 교육, 연구, 백업 목적으로만 사용하세요
-
-### yt-dlp 요구사항
-- yt-dlp가 시스템에 설치되어 있어야 합니다
-- ffmpeg가 설치되어 있으면 더 나은 품질로 다운로드할 수 있습니다
-
-## 문제 해결
-
-### "yt-dlp가 설치되어 있지 않습니다"
 ```bash
-pip install yt-dlp
-# 또는
-brew install yt-dlp  # macOS
+pip install -r requirements-dev.txt
+python -m pytest tests -q
 ```
 
-### "YouTube API Key가 필요합니다"
-- Google Cloud Console에서 YouTube Data API v3를 활성화하고 API 키를 생성하세요
+테스트는 가짜 YouTube API 응답을 사용하므로 실제 키나 쿼터가 필요 없습니다.
 
-### "채널 ID를 찾을 수 없습니다"
-- 채널 URL 형식을 확인하세요
-- @핸들, 채널 ID (UCxxxx), 또는 전체 URL을 입력하세요
+## 이전 버전(쇼츠 수집기)에서 올라온 경우
 
-### 다운로드 실패
-- 네트워크 연결을 확인하세요
-- 영상이 비공개 또는 삭제되지 않았는지 확인하세요
-- yt-dlp를 최신 버전으로 업데이트하세요: `pip install -U yt-dlp`
+기존 `app/database.db`가 있으면 첫 실행 때 카테고리 → 그룹, 채널, API 키, 통계 스냅샷을 자동으로 가져옵니다
+(설정 → 데이터에서 다시 실행할 수도 있습니다). 쇼츠 수집·다운로드 기능은 이번 버전의 범위에서 제외했습니다.
+
+## 알아둘 점
+
+- 공개 API 키만 사용하므로 **공개 통계**(구독자·조회수·영상 수, 영상별 조회수·좋아요·댓글)만 다룹니다.
+  시청 시간, 수익, 트래픽 소스, 유지율 같은 YouTube 애널리틱스 데이터는 채널 소유자 OAuth가 필요한 YouTube Analytics API 영역이라 포함되어 있지 않습니다.
+- 채널 소유자가 구독자 수를 비공개로 설정한 채널은 "비공개"로 표시됩니다.
+- 쇼츠 여부는 영상 길이(기본 180초 이하)로 판정합니다.
+- 기간 내 업로드 수는 "채널당 최근 영상 수" 설정만큼만 수집하므로, 그보다 많이 올리는 채널은 설정값을 높이세요.
 
 ## 라이선스
 
-이 프로젝트는 교육 및 연구 목적으로 제공됩니다. 저작권법과 YouTube 서비스 약관을 준수하여 사용하세요.
-
-## 기여
-
-버그 리포트나 기능 제안은 이슈로 등록해 주세요.
+개인·팀 운영 용도로 자유롭게 사용하세요. YouTube API 서비스 약관을 준수해야 합니다. Chart.js는 MIT 라이선스입니다.

@@ -150,13 +150,15 @@ function renderKpis(row, data) {
     const baseNote = s.channels_with_baseline > 0 && s.channels_with_baseline < s.channel_count
         ? h('span', { class: 'muted' }, `${s.channels_with_baseline}/${s.channel_count}개 채널 기준`) : null;
     const vs = h('span', { class: 'muted' }, `vs ${p} 전`);
+    const hasChannels = s.channel_count > 0;
+    const deltaFoot = (value) => (hasChannels ? [deltaEl(value), vs.cloneNode(true)] : '채널을 추가하면 표시됩니다');
 
     row.appendChild(kpi('채널', 'channels', fmt.int(s.channel_count),
-        s.channels_never_refreshed ? `${s.channels_never_refreshed}개 채널 아직 미갱신` : '활성 채널', { warn: s.channels_never_refreshed > 0 }));
+        s.channels_never_refreshed ? `${s.channels_never_refreshed}개 채널 아직 미갱신` : (hasChannels ? '활성 채널' : '등록된 채널 없음'), { warn: s.channels_never_refreshed > 0 }));
     row.appendChild(kpi('총 구독자', 'users', fmt.compact(s.subscriber_count),
-        [deltaEl(s.subscriber_delta), vs.cloneNode(true), s.channels_subscriber_hidden ? h('span', { class: 'muted' }, `비공개 ${s.channels_subscriber_hidden}개 제외`) : baseNote]));
-    row.appendChild(kpi('총 조회수', 'eye', fmt.compact(s.view_count), [deltaEl(s.view_delta), vs.cloneNode(true)]));
-    row.appendChild(kpi('총 영상', 'film', fmt.int(s.video_count), [deltaEl(s.video_delta), vs.cloneNode(true)]));
+        hasChannels ? [deltaEl(s.subscriber_delta), vs.cloneNode(true), s.channels_subscriber_hidden ? h('span', { class: 'muted' }, `비공개 ${s.channels_subscriber_hidden}개 제외`) : baseNote] : '채널을 추가하면 표시됩니다'));
+    row.appendChild(kpi('총 조회수', 'eye', fmt.compact(s.view_count), deltaFoot(s.view_delta)));
+    row.appendChild(kpi('총 영상', 'film', fmt.int(s.video_count), deltaFoot(s.video_delta)));
     const uploadsFoot = s.channels_without_upload > 0
         ? [svg('alert'), `업로드 없는 채널 ${s.channels_without_upload}개`]
         : (s.channel_count ? '모든 채널이 업로드함' : '');
