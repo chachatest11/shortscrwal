@@ -20,24 +20,34 @@
 
 ## 요구 사항
 
-- Python 3.9 이상
+- Python 3.9 이상 (macOS는 `python3`, Windows는 `python` 명령)
 - YouTube Data API v3 키 ([만드는 방법](#youtube-api-키-만들기))
 - 인터넷 연결 (YouTube API 호출용)
 
 ## 설치와 실행
 
-```bash
-git clone <repository-url>
-cd shortscrwal
+가장 쉬운 방법은 시작 스크립트입니다. 가상환경 생성, 패키지 설치, 서버 실행, 브라우저 열기까지 한 번에 합니다.
 
-python -m venv venv
+```bash
+git clone -b claude/gifted-dijkstra-kp7mxv https://github.com/chachatest11/shortscrwal.git channelboard
+cd channelboard
+./start.sh            # macOS / Linux  (Windows: start.bat 더블클릭)
+```
+
+(`-b claude/gifted-dijkstra-kp7mxv` 는 새 버전이 들어 있는 브랜치입니다. main에 합쳐진 뒤에는 생략해도 됩니다.)
+
+macOS에서는 Finder에서 `start.command`를 더블클릭해도 됩니다. 이후에도 실행할 때마다 같은 스크립트를 쓰면 됩니다.
+
+직접 실행하려면:
+
+```bash
+python3 -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-브라우저에서 <http://localhost:8000> 을 엽니다. 자세한 단계별 설명은 [SETUP.md](SETUP.md)에 있습니다.
+브라우저에서 <http://localhost:8000> 을 엽니다. 단계별 설명과 문제 해결은 [SETUP.md](SETUP.md)에 있습니다.
 
 처음 열면 대시보드에 **시작하기** 카드가 뜹니다.
 
